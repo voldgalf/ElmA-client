@@ -18,7 +18,7 @@ class ElmA():
         self._app.add_tool(self.read_inbox)
         self._app.add_tool(self.send_message)
         self._app.add_tool(self.read_message)
-        
+
     def _post_request(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         response = httpx.post(f"{self.address}{path}", json=payload)
 
@@ -40,6 +40,9 @@ class ElmA():
             return health_response_formatted.data.status == "ok"
 
         return False
+
+    def run(self):
+        self._app.run(transport="stdio")
 
     def create_mailbox(self):
         response = self._post_request("/create-mailbox", payload=RequestCreateMailbox(
@@ -100,5 +103,5 @@ elma = ElmA()
 print(elma.get_health())
 
 if __name__ == "__main__":
-    # elma.app.run(transport="stdio")
+    elma.run()
     pass
