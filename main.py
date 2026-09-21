@@ -37,10 +37,11 @@ class ElmA():
         self.status = ElmAStatus(
             online=False, authenticated=False, address=self.mailbox_address)
         self._app = FastMCP("ElmA")
+
+        self._thread_lock = threading.Lock()
         
         self._middleware = ElmAMiddleWare(self.status)
-        
-        self._thread_lock = threading.Lock()
+        self._status_thread = threading.Thread(target=self._status_loop)
 
         self._app.add_tool(self.create_mailbox)
         self._app.add_tool(self.read_inbox)
@@ -62,7 +63,7 @@ class ElmA():
 
         return False
 
-    def _status_thread(self) -> None:
+    def _status_loop(self) -> None:
         while True:
             with self._thread_lock:
                 self.status.online = self.get_health()
@@ -80,7 +81,9 @@ class ElmA():
         return response.json()
 
     def run(self):
-        self._app.run(transport="stdio")
+
+        self._status_thread.start()
+
 
     def get_status(self):
         with self._thread_lock:
