@@ -1,7 +1,5 @@
 import httpx
 from fastmcp import FastMCP
-from fastmcp.server.middleware import Middleware, MiddlewareContext
-from fastmcp.tools.base import ToolResult
 from pydantic import BaseModel
 from database_classes import Mail, Mailbox
 from typing import Any
@@ -18,20 +16,6 @@ class ElmAStatus(BaseModel):
     def is_connected(self) -> bool:
         return (self.online and self.authenticated)
 
-
-class ElmAMiddleWare(Middleware):
-
-    def __init__(self, elma_status: ElmAStatus):
-        super().__init__()
-        self.elma_status = elma_status
-
-    async def on_message(self, context: MiddlewareContext, call_next):
-        if (not self.elma_status.is_connected()):
-            return ToolResult(content="rate limit exceeded", is_error=True)
-        result = await call_next(context)
-        return result
-
-
 class ElmA():
     def __init__(self) -> None:
         self.mailbox_address: str = "agentA"
@@ -43,8 +27,6 @@ class ElmA():
         self._app = FastMCP("ElmA")
 
         self._thread_lock = threading.Lock()
-
-        self._middleware = ElmAMiddleWare(self.status)
         self._status_thread = threading.Thread(target=self._status_loop)
 
         self._app.add_tool(self.create_mailbox)
@@ -88,7 +70,7 @@ class ElmA():
 
         self._status_thread.start()
 
-        self._app.run(transport="streamable-http",port=8001)
+        self._app.run(transport="streamable-http", port=8001)
 
     def get_status(self):
         with self._thread_lock:
@@ -103,12 +85,12 @@ class ElmA():
         print(payload)
 
         response = self._post_request("/create-mailbox", payload=payload)
-        
+
         print(response)
-        
+
         response_formatted = ResponseBase[Mailbox].model_validate(
             response)
-        
+
         return response_formatted.model_dump()
 
     def authenticate_mailbox(self):
@@ -129,7 +111,7 @@ class ElmA():
 
     def read_inbox(self):
 
-        response = self._post_request("read-inbox",
+        response = self._post_request("/read-inbox",
                                       payload=RequestReadInbox(address=self.mailbox_address, jwt=self.jwt).model_dump())
 
         response_formatted = ResponseBase[list[Mail]].model_validate(response)
