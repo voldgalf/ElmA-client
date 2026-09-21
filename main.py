@@ -3,10 +3,12 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import ToolResult
 from pydantic import BaseModel
+from database_classes import Mail, Mailbox
 from typing import Any
-from classes import RequestAuthenticate, ResponseAuthenticate, ResponseCreateMailbox, RequestCreateMailbox, ResponseReadInbox, RequestReadInbox, RequestSendMail, ResponseSendMail, RequestReadMessage, ResponseReadMessage, ResponseHealth
+from classes import RequestAuthenticate, RequestCreateMailbox, RequestReadInbox, RequestSendMail, RequestReadMessage, ResponseHealthDataWrapper, ResponseAuthenticateDataWrapper, ResponseBase
 import threading
 import time
+
 
 class ElmAStatus(BaseModel):
     online: bool
@@ -16,17 +18,19 @@ class ElmAStatus(BaseModel):
     def is_connected(self) -> bool:
         return (self.online and self.authenticated)
 
+
 class ElmAMiddleWare(Middleware):
-    
+
     def __init__(self, elma_status: ElmAStatus):
         super().__init__()
         self.elma_status = elma_status
-    
+
     async def on_message(self, context: MiddlewareContext, call_next):
         if (not self.elma_status.is_connected()):
             return ToolResult(content="rate limit exceeded", is_error=True)
         result = await call_next(context)
         return result
+
 
 class ElmA():
     def __init__(self) -> None:
@@ -39,7 +43,7 @@ class ElmA():
         self._app = FastMCP("ElmA")
 
         self._thread_lock = threading.Lock()
-        
+
         self._middleware = ElmAMiddleWare(self.status)
         self._status_thread = threading.Thread(target=self._status_loop)
 
@@ -54,7 +58,7 @@ class ElmA():
 
         health_response = self._get_request("/health")
 
-        health_response_formatted = ResponseHealth.model_validate(
+        health_response_formatted = ResponseBase[ResponseHealthDataWrapper].model_validate(
             health_response)
 
         if (health_response_formatted.success and health_response_formatted.data):
@@ -84,6 +88,7 @@ class ElmA():
 
         self._status_thread.start()
 
+        self._app.run(transport="streamable-http",port=8001)
 
     def get_status(self):
         with self._thread_lock:
@@ -92,20 +97,26 @@ class ElmA():
 
     def create_mailbox(self):
 
-        response = self._post_request("/create-mailbox", payload=RequestCreateMailbox(
-            address=self.address, password=self.password).model_dump())
+        payload = RequestCreateMailbox(
+            address=self.mailbox_address, password=self.password).model_dump()
 
-        response_formatted: ResponseCreateMailbox = ResponseCreateMailbox.model_validate(
+        print(payload)
+
+        response = self._post_request("/create-mailbox", payload=payload)
+        
+        print(response)
+        
+        response_formatted = ResponseBase[Mailbox].model_validate(
             response)
-
+        
         return response_formatted.model_dump()
 
     def authenticate_mailbox(self):
 
         response = self._post_request("/authenticate", payload=RequestAuthenticate(
-            address=self.address, password=self.password).model_dump())
+            address=self.mailbox_address, password=self.password).model_dump())
 
-        response_formatted: ResponseAuthenticate = ResponseAuthenticate.model_validate(
+        response_formatted = ResponseBase[ResponseAuthenticateDataWrapper].model_validate(
             response)
 
         print(response_formatted)
@@ -113,49 +124,33 @@ class ElmA():
         if (response_formatted.success and response_formatted.data):
 
             self.jwt = response_formatted.data.jwt
-            
+
+        return response_formatted.model_dump()
+
     def read_inbox(self):
 
-        if not self.authenticated:
-            return {"Currently unauthenticated, unable to run any tools"}
-
-        if not self.get_health():
-            return {"Unable to connect to ElmA-server"}
-
         response = self._post_request("read-inbox",
-                                      payload=RequestReadInbox(address=self.address, jwt=self.jwt).model_dump())
+                                      payload=RequestReadInbox(address=self.mailbox_address, jwt=self.jwt).model_dump())
 
-        response_formatted = ResponseReadInbox.model_validate(response)
+        response_formatted = ResponseBase[list[Mail]].model_validate(response)
 
         return response_formatted.model_dump()
 
     def send_message(self, recipient_address: str, subject: str, message: str):
 
-        if not self.authenticated:
-            return {"Currently unauthenticated, unable to run any tools"}
-
-        if not self.get_health():
-            return {"Unable to connect to ElmA-server"}
-
         response = self._post_request("/send-message", payload=RequestSendMail(
-            address=self.address, jwt=self.jwt, subject=subject, recipient=recipient_address, content=message).model_dump())
+            address=self.mailbox_address, jwt=self.jwt, subject=subject, recipient=recipient_address, content=message).model_dump())
 
-        response_formatted = ResponseSendMail.model_validate(response)
+        response_formatted = ResponseBase[Mail].model_validate(response)
 
         return response_formatted.model_dump()
 
     def read_message(self, message_id: str):
 
-        if not self.authenticated:
-            return {"Currently unauthenticated, unable to run any tools"}
-
-        if not self.get_health():
-            return {"Unable to connect to ElmA-server"}
-
         response = self._post_request("/read-message", payload=RequestReadMessage(
-            address=self.address, jwt=self.jwt, message_id=message_id).model_dump())
+            address=self.mailbox_address, jwt=self.jwt, message_id=message_id).model_dump())
 
-        response_formatted = ResponseReadMessage.model_validate(
+        response_formatted = ResponseBase[Mail].model_validate(
             response)
 
         return response_formatted.model_dump()

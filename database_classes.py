@@ -4,10 +4,9 @@ import uuid
 
 
 class Mailbox(BaseModel):
-    id: uuid.UUID
+    id: uuid.UUID | None = None
     address: str
-    password_hash: bytes
-
+    password_hash: bytes | None = None
 
 class Mail(BaseModel):
     id: uuid.UUID
